@@ -1,12 +1,12 @@
 {
   "name": "voicecall-signaling-server",
-  "version": "1.0.0",
-  "description": "Minimal WebSocket signaling server for a Flutter WebRTC voice call app",
+  "version": "2.0.0",
+  "description": "Socket.IO signaling server (WebSocket with HTTP long-polling fallback) for a Flutter WebRTC voice call app",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "ws": "^8.17.0"
+    "socket.io": "^4.8.1"
   }
 }

@@ -31,9 +31,3 @@
             android:value="2" />
     </application>
 </manifest>
-<!--
-NOTE: This is a merge-in reference file showing the permissions/config you need.
-Run `flutter create .` in flutter_app/ first to generate the full Android project
-scaffold (gradle files, MainActivity.kt, etc.), then merge these permissions and
-the <application> tweaks into the generated AndroidManifest.xml.
--->

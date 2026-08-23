@@ -1,14 +1,20 @@
-import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:socket_io_client/socket_io_client.dart' as io;
 
-// TODO: change this to the URL of your deployed signaling server, e.g.
-// 'wss://your-app.onrender.com'
-const String signalingServerUrl = 'ws://YOUR_SERVER_IP:8080';
+// Point this at your deployed signaling server's base URL (no path).
+const String signalingServerUrl = 'https://karim.imockup.top';
+
+// Must match the `path` the server's Socket.IO instance was configured
+// with. Using Socket.IO instead of a raw WebSocket lets the client
+// automatically fall back to HTTP long-polling when a reverse proxy (like
+// the one in front of this server) blocks the WebSocket Upgrade handshake
+// — it still tries a real WebSocket first, and upgrades to it silently if
+// the network path ever allows one.
+const String signalingSocketPath = '/socket/socket.io/';
 
 void main() {
   runApp(const VoiceCallApp());
@@ -38,7 +44,7 @@ class _CallScreenState extends State<CallScreen> {
   late final String myId;
   final TextEditingController _targetIdController = TextEditingController();
 
-  WebSocketChannel? _channel;
+  io.Socket? _socket;
   RTCPeerConnection? _pc;
   MediaStream? _localStream;
 
@@ -73,19 +79,31 @@ class _CallScreenState extends State<CallScreen> {
 
   void _connectSignaling() {
     setState(() => _status = 'Connecting to server...');
-    _channel = WebSocketChannel.connect(Uri.parse(signalingServerUrl));
 
-    _channel!.stream.listen(
-      (raw) => _onSignalingMessage(jsonDecode(raw)),
-      onDone: () => setState(() => _status = 'Disconnected from server'),
-      onError: (e) => setState(() => _status = 'Connection error: $e'),
+    _socket = io.io(
+      signalingServerUrl,
+      io.OptionBuilder()
+          .setPath(signalingSocketPath)
+          .setTransports(['websocket', 'polling'])
+          .enableAutoConnect()
+          .build(),
     );
 
-    _send({'type': 'register', 'id': myId});
+    _socket!.onConnect((_) {
+      _send({'type': 'register', 'id': myId});
+    });
+
+    _socket!.on('signal', (data) {
+      _onSignalingMessage(Map<String, dynamic>.from(data as Map));
+    });
+
+    _socket!.onDisconnect((_) => setState(() => _status = 'Disconnected from server'));
+    _socket!.onConnectError((e) => setState(() => _status = 'Connection error: $e'));
+    _socket!.onError((e) => setState(() => _status = 'Connection error: $e'));
   }
 
   void _send(Map<String, dynamic> data) {
-    _channel?.sink.add(jsonEncode(data));
+    _socket?.emit('signal', data);
   }
 
   Future<void> _onSignalingMessage(Map<String, dynamic> msg) async {
@@ -227,7 +245,8 @@ class _CallScreenState extends State<CallScreen> {
   @override
   void dispose() {
     _endCall(notifyRemote: true);
-    _channel?.sink.close();
+    _socket?.disconnect();
+    _socket?.dispose();
     _targetIdController.dispose();
     super.dispose();
   }

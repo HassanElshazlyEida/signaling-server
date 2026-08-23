@@ -1,28 +1,61 @@
-# Voice Call (Flutter + WebRTC + WebSocket signaling)
+# Voice Call (Flutter + WebRTC + Socket.IO signaling)
 
 Minimal mic-only voice call app. Each user gets a random 6-digit ID on
 launch. Type another user's ID and hit Call to open a live voice connection.
+
+Signaling transport is **Socket.IO** rather than a raw WebSocket. It tries a
+real WebSocket first and upgrades to it automatically wherever the network
+path allows one, but falls back to plain HTTP long-polling when it doesn't —
+which matters if you're deploying behind a reverse proxy that blocks the
+WebSocket `Upgrade` handshake (a common limitation on shared cPanel/LiteSpeed
+hosting; see "Deployment notes" below). The message protocol itself
+(`register` / `offer` / `answer` / `candidate` / `hangup`) is unchanged from
+a raw-WebSocket setup — only the transport underneath is different.
 
 ## 1. Deploy the signaling server
 
 ```bash
 cd signaling-server
 npm install
-npm start        # runs on ws://localhost:8080
+npm start        # runs on http://localhost:8080, Socket.IO path /socket/socket.io/
 ```
 
 Deploy it somewhere reachable from the internet (Render, Railway, Fly.io,
-a $5 VPS, etc). Free tiers on Render/Railway work fine for this — it's just
-relaying small JSON messages, not audio.
+a $5 VPS, cPanel's Node.js Selector, etc). Free tiers on Render/Railway work
+fine for this — it's just relaying small JSON messages, not audio.
 
-Once deployed you'll get a URL like `wss://your-app.onrender.com`.
+Once deployed you'll have a base URL, e.g. `https://your-app.onrender.com`
+or, for a cPanel Node.js Selector app mounted under a path,
+`https://yourdomain.com/socket`.
+
+### Deployment notes (cPanel / LiteSpeed / shared hosting)
+
+If you're hosting on cPanel with a Node.js Selector app, LiteSpeed's
+auto-generated reverse proxy for that app often does **not** pass the
+WebSocket `Upgrade` header through — plain HTTP works, but a raw WebSocket
+handshake just hangs and times out. Fixing that properly requires root/WHM
+access to add a `ws://` `ProxyPass` directive to the domain's Apache-style
+vhost config (see LiteSpeed's
+[WebSocket Proxy docs](https://docs.litespeedtech.com/lsws/cp/cpanel/websocket-proxy/)),
+which most shared-hosting accounts don't have.
+
+Socket.IO's automatic long-polling fallback sidesteps this entirely — no
+server config changes needed. This has been verified working end-to-end
+(register + offer/answer/candidate relay) over the polling transport against
+a cPanel Node.js Selector app with WebSocket upgrades blocked.
+
+If your Node.js Selector app is mounted at a URL path (e.g. `/socket`
+instead of its own subdomain), set the Socket.IO server's `path` option to
+include that prefix — e.g. `path: '/socket/socket.io/'` — and configure the
+Flutter client's `signalingSocketPath` to match exactly.
 
 ## 2. Configure the Flutter app
 
 Open `flutter_app/lib/main.dart` and set:
 
 ```dart
-const String signalingServerUrl = 'wss://your-app.onrender.com';
+const String signalingServerUrl = 'https://your-app.onrender.com'; // base URL, no path
+const String signalingSocketPath = '/socket.io/'; // or '/socket/socket.io/' if mounted under a path
 ```
 
 Then scaffold the native Android project (this repo only ships the Dart
@@ -68,3 +101,5 @@ to a GitHub Release.
   calls, not group rooms.
 - IDs are randomly generated per app launch (not persisted) — add local
   storage (e.g. `shared_preferences`) if you want a stable ID per install.
+- Signaling now rides on Socket.IO (WebSocket-with-polling-fallback) instead
+  of a raw WebSocket — see "Deployment notes" above for why.

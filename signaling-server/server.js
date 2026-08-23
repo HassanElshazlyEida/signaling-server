@@ -1,38 +1,52 @@
-// Minimal WebSocket signaling server for WebRTC voice calls.
-// Each connected client registers with a unique ID. Messages addressed
-// to a target ID are simply relayed to that client's socket.
+// Socket.IO signaling server for WebRTC voice calls.
+//
+// Same protocol as the original raw-WebSocket version: each connected
+// client registers with a unique ID, and messages addressed to a target ID
+// are relayed to that client. The only difference is the transport layer —
+// Socket.IO negotiates a real WebSocket when the network/proxy allows it,
+// and transparently falls back to HTTP long-polling when it doesn't (e.g.
+// behind a reverse proxy that blocks the WebSocket Upgrade handshake).
+// Everything above the transport (message shapes, ids, relay logic) is
+// unchanged, so the rest of the app doesn't need to know which transport
+// is actually in use.
 
-const WebSocket = require('ws');
+const http = require('http');
+const { Server } = require('socket.io');
 
 const PORT = process.env.PORT || 8080;
-const wss = new WebSocket.Server({ port: PORT });
 
-// id -> ws
+const httpServer = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Signaling server is running.\n');
+});
+
+const io = new Server(httpServer, {
+  // Must match the public URL prefix the app is served under (cPanel's
+  // Node.js Selector maps https://<domain>/socket -> this app), otherwise
+  // the client's Engine.IO handshake requests 404.
+  path: '/socket/socket.io/',
+  cors: { origin: '*' },
+});
+
+// id -> socket
 const clients = new Map();
 
-function send(ws, obj) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(obj));
-  }
+function send(socket, obj) {
+  if (socket) socket.emit('signal', obj);
 }
 
-wss.on('connection', (ws) => {
+io.on('connection', (socket) => {
   let myId = null;
 
-  ws.on('message', (raw) => {
-    let msg;
-    try {
-      msg = JSON.parse(raw);
-    } catch (e) {
-      return; // ignore malformed messages
-    }
+  socket.on('signal', (msg) => {
+    if (!msg || typeof msg !== 'object') return;
 
     switch (msg.type) {
       case 'register': {
         myId = String(msg.id);
-        clients.set(myId, ws);
+        clients.set(myId, socket);
         console.log(`registered: ${myId} (${clients.size} online)`);
-        send(ws, { type: 'registered', id: myId });
+        send(socket, { type: 'registered', id: myId });
         break;
       }
 
@@ -44,7 +58,7 @@ wss.on('connection', (ws) => {
       case 'hangup': {
         const target = clients.get(String(msg.target));
         if (!target) {
-          send(ws, { type: 'error', message: `user ${msg.target} not online` });
+          send(socket, { type: 'error', message: `user ${msg.target} not online` });
           return;
         }
         send(target, { ...msg, from: myId });
@@ -56,7 +70,7 @@ wss.on('connection', (ws) => {
     }
   });
 
-  ws.on('close', () => {
+  socket.on('disconnect', () => {
     if (myId) {
       clients.delete(myId);
       console.log(`disconnected: ${myId} (${clients.size} online)`);
@@ -64,4 +78,6 @@ wss.on('connection', (ws) => {
   });
 });
 
-console.log(`Signaling server listening on ws://0.0.0.0:${PORT}`);
+httpServer.listen(PORT, () => {
+  console.log(`Signaling server (Socket.IO) listening on port ${PORT}`);
+});
