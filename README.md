@@ -81,6 +81,13 @@ Install on two devices, note the ID shown on each screen, enter one phone's
 ID into the other phone's "Enter ID to call" field, tap Call. First call
 requires accepting the microphone permission prompt.
 
+**Verified:** tested end-to-end on two physical Android devices on
+different networks — one phone calls the other's ID, the call connects,
+and audio flows both ways. Confirms both the Socket.IO signaling relay
+(deployed on the cPanel/LiteSpeed host, see "Deployment notes" above) and
+STUN-based NAT traversal work across separate networks, not just on a
+shared LAN.
+
 ## 4. CI/CD (GitHub Actions)
 
 `.github/workflows/flutter-ci.yml` builds a release APK automatically on
